@@ -65,9 +65,13 @@
           "type": "boolean",
           "description": "Use arping? It improved detection of mobile phones, but can only be used if you have it installed on your system."
         },
-        "Default IP adress": {
+        "Default IP address": {
           "type": "string",
-          "description": "Default IP adress to use."
+          "description": "Default IP address to use."
+        },
+        "Default subnet mask": {
+          "type": "string",
+          "description": "Default subnet mask (e.g. 255.255.255.0) to use."
         },
         "Debug messages": {
           "type": "boolean",

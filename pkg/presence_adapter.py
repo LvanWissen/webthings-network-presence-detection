@@ -7,6 +7,8 @@ import os
 import re
 import threading
 
+import ipaddress
+
 from .presence_device import PresenceDevice
 from .util import valid_ip, valid_mac, clamp, get_ip, ping, arping, arp, printDebug
 
@@ -48,6 +50,9 @@ class PresenceAdapter(Adapter):
         self.time_window = 60 # How many minutes should a device be away before we concider it away?
         self.arping = False # Does the user also want to try using arping?
 
+        self.defaultIpAddress = ''
+        self.defaultSubnetMask = ''
+
         self.add_from_config() # Here we get data from the settings in the Gateway interface.
 
         self.own_ip = 'unknown' # We scan only scan if the device itself has an IP address.
@@ -55,7 +60,7 @@ class PresenceAdapter(Adapter):
         self.deep_scan_frequency = 10 # once every 10 scans we do a deep scan.
         self.scan_count = 0 # Used by the deep scan system.
         self.filename = None
-        self.defaultIpAddress = ''
+
 
         for path in _CONFIG_PATHS:
             if os.path.isdir(path):
@@ -111,18 +116,25 @@ class PresenceAdapter(Adapter):
                 #def split_processing(items, num_splits=4):
                 old_previous_found_count = len(self.previously_found)
                 thread_count = 5
-                split_size = 51
+
+                # if default ip and subnet are provided
+                if self.defaultIpAddress and self.defaultSubnetMask:
+                    ip_addresses = [str(i) for i in ipaddress.ip_network(self.defaultIpAddress + '/' + self.defaultSubnetMask, False).hosts()]
+                else:
+                    start = 0
+                    end = 255
+                    ip_addresses = [str(self.own_ip[:self.own_ip.rfind(".")]) + "." + str(ip_byte4) for ip_byte4 in range(start, end)]
+
+                split_size = round(len(ip_addresses) / thread_count + 0.5)
+
                 threads = []
-                for i in range(thread_count):
+
+                for ips in [ip_addresses[i:i + split_size] for i in range(0, len(ip_addresses), split_size)]:
                     # determine the indices of the list this thread will handle
-                    start = i * split_size
-                    printDebug("thread start = " + str(start), self.DEBUG)
-                    # special case on the last chunk to account for uneven splits
-                    end = 255 if i+1 == thread_count else (i+1) * split_size
-                    printDebug("thread end = " + str(end), self.DEBUG)
+                    
                     # Create the thread
                     threads.append(
-                        threading.Thread(target=self.scan, args=(start, end)))
+                        threading.Thread(target=self.scan, args=(ips,)))
                     threads[-1].daemon = True
                     threads[-1].start() # start the thread we just created
 
@@ -180,26 +192,27 @@ class PresenceAdapter(Adapter):
         self.should_save = True # saving changes to the json persistence file
 
 
-    def scan(self, start, end):
+    def scan(self, ip_addresses):
         self.scan_count += 1
         if self.scan_count == self.deep_scan_frequency:
             self.scan_count = 0
 
         self.should_save = False # We only save found_devices to a file if new devices have been found during this scan.
 
-        # skip broadcast addresses
-        if start == 0:
-            start = 1
-        if end == 255:
-            end = 254
-            
-        for ip_byte4 in range(start, end):
+        # # skip broadcast addresses
+        # if start == 0:
+        #     start = 1
+        # if end == 255:
+        #     end = 254
 
+                
             # when halfway through, start a new thread.
 
 
-
-            ip_address = str(self.own_ip[:self.own_ip.rfind(".")]) + "." + str(ip_byte4)
+        for ip_address in ip_addresses:  # skip broadcast addresses
+            if ip_address.endswith('.255'):
+                continue
+            
             printDebug("", self.DEBUG)
             printDebug(ip_address, self.DEBUG)
 
@@ -500,8 +513,11 @@ class PresenceAdapter(Adapter):
             if 'Arping' in config:
                 self.arping = config['Arping'] # boolean.
 
-            if 'Default IP adress' in config:
-                self.defaultIpAddress = config['Default IP adress']; #string
+            if 'Default IP address' in config:
+                self.defaultIpAddress = config['Default IP address'] #string
+                
+            if 'Default subnet mask' in config:
+                self.defaultSubnetMask = config['Default subnet mask'] #string
 
             if 'Debug messages' in config:
                 self.DEBUG = config['Debug messages'] # boolean
